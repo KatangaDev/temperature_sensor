@@ -9,7 +9,7 @@ import struct
 import wifi_config
 import _thread
 
-PERIOD = 60
+PERIOD = 600
 
 led = Pin("LED", Pin.OUT)
 log_lock = _thread.allocate_lock()
@@ -63,7 +63,7 @@ def blink(period_on=0.1, period_off=0.3, repetitions=1):
 def connect_to_socket():
     global s
 
-    while True:
+    for i in range(3):
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.settimeout(4)
@@ -80,7 +80,9 @@ def connect_to_socket():
             blink(1, 0.1, 2)
         else:
             print("Connected to socket")
-            break
+            return True
+
+    return False
 
 
 def send_message(msg=""):
@@ -124,6 +126,7 @@ def connect_to_wifi(ssid, password):
 
 
 def set_time():
+    print("Setting time using NTP server...")
     NTP_DELTA = 2208988800 - 3600
     host = "pool.ntp.org"
     NTP_QUERY = bytearray(48)
@@ -131,15 +134,20 @@ def set_time():
     addr = socket.getaddrinfo(host, 123)[0][-1]
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        s.settimeout(1)
+        s.settimeout(5)
         res = s.sendto(NTP_QUERY, addr)
         msg = s.recv(48)
+    except OSError as e:
+        print(type(e),e)
+        return
+
     finally:
         s.close()
     val = struct.unpack("!I", msg[40:44])[0]
     t = val - NTP_DELTA
     tm = time.gmtime(t)
     machine.RTC().datetime((tm[0], tm[1], tm[2], tm[6] + 1, tm[3], tm[4], tm[5], 0))
+    print("Machine time set using NTP server")
 
 
 def log_temperature():
@@ -201,7 +209,8 @@ sensor_thread = _thread.start_new_thread(sensor_loop,tuple())
 
 while True:
     try:
-        connect_to_socket()
+        if not connect_to_socket():
+            raise RuntimeError
         while True:
             message = get_data_to_send()
             if message:
@@ -211,7 +220,11 @@ while True:
             else:
                 s.close()
                 break
-        time.sleep(300)
+        time.sleep(3600)
+    except RuntimeError as e:
+        print(type(e),e)
+        time.sleep(60)
     except Exception as e:
-        print(e)
+        print(type(e),e)
         connect_to_wifi(ssid, password)
+
