@@ -9,7 +9,8 @@ import struct
 import wifi_config
 import _thread
 
-PERIOD = 600
+SAMPLING_PERIOD = 4
+BROADCAST_PERIOD = 60 * 1
 
 led = Pin("LED", Pin.OUT)
 log_lock = _thread.allocate_lock()
@@ -67,7 +68,11 @@ def connect_to_socket():
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.settimeout(4)
-            s.connect(("192.168.1.12", 8500))
+            addr_ip = socket.getaddrinfo("Siek", 80)[0][-1][0]
+            print(addr_ip)
+            s.connect((addr_ip, 8500))
+            # s.connect(("192.168.1.12", 8500))
+
 
         except OSError as e:
             print("Could not connect to the socket:", e)
@@ -138,7 +143,7 @@ def set_time():
         res = s.sendto(NTP_QUERY, addr)
         msg = s.recv(48)
     except OSError as e:
-        print(type(e),e)
+        print(type(e), e)
         return
 
     finally:
@@ -169,12 +174,21 @@ def get_data_to_send():
     return line
 
 
-def remove_first_from_log():
+def get_broad_data_to_send() -> (int, str):
+    log_lock.acquire()
+    with open("temperature_log.txt", "r") as f:
+        data = f.read().splitlines(True)[:20]
+        data_to_send = "".join(data)
+    log_lock.release()
+    return data_to_send.count('\n'), data_to_send
+
+
+def remove_from_log(no_of_lines=1):
     log_lock.acquire()
     with open("temperature_log.txt", "r") as f:
         data = f.read().splitlines(True)
     with open("temperature_log.txt", "w") as f:
-        for line in data[1:]:
+        for line in data[no_of_lines:]:
             f.write(line)
     log_lock.release()
 
@@ -182,9 +196,7 @@ def remove_first_from_log():
 def sensor_loop():
     while True:
         log_temperature()  # lock in the function
-        time.sleep(PERIOD)
-
-
+        time.sleep(SAMPLING_PERIOD)
 
 
 # Connection loop
@@ -205,26 +217,28 @@ while True:
 
 i2c = I2C(0, scl=Pin(17), sda=Pin(16), freq=10000)
 mcp = mcp9808.MCP9808(i2c)
-sensor_thread = _thread.start_new_thread(sensor_loop,tuple())
+sensor_thread = _thread.start_new_thread(sensor_loop, tuple())
 
 while True:
     try:
         if not connect_to_socket():
             raise RuntimeError
         while True:
-            message = get_data_to_send()
+            # message = get_data_to_send()
+            no_of_lines, message = get_broad_data_to_send()
             if message:
                 if send_message(message):
-                    remove_first_from_log()
+                    remove_from_log(no_of_lines)
+                    time.sleep(1)
 
             else:
                 s.close()
                 break
-        time.sleep(3600)
-    except RuntimeError as e:
-        print(type(e),e)
-        time.sleep(60)
-    except Exception as e:
-        print(type(e),e)
-        connect_to_wifi(ssid, password)
 
+        time.sleep(BROADCAST_PERIOD)
+    except RuntimeError as e:
+        print(type(e), e)
+        time.sleep(BROADCAST_PERIOD)
+    except Exception as e:
+        print(type(e), e)
+        connect_to_wifi(ssid, password)
