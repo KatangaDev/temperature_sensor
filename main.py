@@ -9,16 +9,20 @@ import struct
 import wifi_config
 import _thread
 
-SAMPLING_PERIOD = 4
-BROADCAST_PERIOD = 60 * 1
+
+SAMPLING_PERIOD = 60 * 3
+BROADCAST_PERIOD = 60 * 5
+MAX_LOG_SIZE = 1024 * 128 #[Bytes]
 
 led = Pin("LED", Pin.OUT)
 log_lock = _thread.allocate_lock()
+stop_sensor_thread = False
 
 # ssid, password = "Monitoring109a", "vegaspalmas"
 
 s: socket.Socket
 cnt = 0
+
 
 with open("temperature_log.txt", "a") as f:
     pass
@@ -73,7 +77,6 @@ def connect_to_socket():
             s.connect((addr_ip, 8500))
             # s.connect(("192.168.1.12", 8500))
 
-
         except OSError as e:
             print("Could not connect to the socket:", e)
             s.close()
@@ -84,7 +87,7 @@ def connect_to_socket():
             print("Error occured while connecting to socket:", e)
             blink(1, 0.1, 2)
         else:
-            print("Connected to socket")
+            print("Connected to socket ")
             return True
 
     return False
@@ -163,6 +166,11 @@ def log_temperature():
     with open("temperature_log.txt", "a") as f:
         line = f"{friendly_time} temperature = {temp_celsius:.1f} C\n"
         f.write(line)
+
+    log_size = os.stat("temperature_log.txt")[6]
+    if log_size > MAX_LOG_SIZE:
+        remove_from_log(log_acquired=True)
+
     log_lock.release()
 
 
@@ -183,14 +191,18 @@ def get_broad_data_to_send() -> (int, str):
     return data_to_send.count('\n'), data_to_send
 
 
-def remove_from_log(no_of_lines=1):
-    log_lock.acquire()
+def remove_from_log(no_of_lines=1, log_acquired=False):
+    if not log_acquired:
+        log_lock.acquire()
+
     with open("temperature_log.txt", "r") as f:
         data = f.read().splitlines(True)
     with open("temperature_log.txt", "w") as f:
         for line in data[no_of_lines:]:
             f.write(line)
-    log_lock.release()
+
+    if not log_acquired:
+        log_lock.release()
 
 
 def sensor_loop():
@@ -225,16 +237,15 @@ while True:
             raise RuntimeError
         while True:
             # message = get_data_to_send()
-            no_of_lines, message = get_broad_data_to_send()
+            number_of_lines, message = get_broad_data_to_send()
             if message:
                 if send_message(message):
-                    remove_from_log(no_of_lines)
+                    remove_from_log(number_of_lines)
                     time.sleep(1)
 
             else:
                 s.close()
                 break
-
         time.sleep(BROADCAST_PERIOD)
     except RuntimeError as e:
         print(type(e), e)
