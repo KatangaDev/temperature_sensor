@@ -8,30 +8,32 @@ import mcp9808
 import struct
 import wifi_config
 import _thread
+import os
+import uasyncio as asyncio
 
-
+# region Constants
 SAMPLING_PERIOD = 60 * 3
-BROADCAST_PERIOD = 60 * 5
-MAX_LOG_SIZE = 1024 * 128 #[Bytes]
+BROADCAST_PERIOD = 5 # 60 * 5
+MAX_LOG_SIZE = 1024 * 128  # [Bytes]
+# endregion
 
+# region Global variables
+mcp_sensor:mcp9808.MCP9808
+ssid:str
+password:str
 led = Pin("LED", Pin.OUT)
-log_lock = _thread.allocate_lock()
+# log_lock = _thread.allocate_lock()
+log_lock = asyncio.Lock()
 stop_sensor_thread = False
-
-# ssid, password = "Monitoring109a", "vegaspalmas"
-
 s: socket.Socket
 cnt = 0
 
+# endregion
 
-with open("temperature_log.txt", "a") as f:
-    pass
+# region Overwriting
+# ssid, password = "Monitoring109a", "vegaspalmas"
 
-
-# rtc = machine.RTC()
-# rtc.datetime((2023, 1, 31, 1, 20, 9, 0, 0))
-# print(rtc.datetime())
-
+# endregion
 
 def store_wifi_params(ssid, password):
     with open("settings.txt", "w") as f:
@@ -158,11 +160,14 @@ def set_time():
     print("Machine time set using NTP server")
 
 
-def log_temperature():
-    temp_celsius = mcp.get_temp()
+async def log_temperature(sensor:mcp9808.MCP9808):
+    print("lock in log temp:", log_lock.locked())
+    temp_celsius = sensor.get_temp()
     t = time.localtime()
     friendly_time = f"{t[0]}-{t[1]:02d}-{t[2]:02d} {t[3]:02d}:{t[4]:02d}:{t[5]:02d}"
-    log_lock.acquire()
+    await log_lock.acquire()
+    print("lock:",log_lock.locked())
+
     with open("temperature_log.txt", "a") as f:
         line = f"{friendly_time} temperature = {temp_celsius:.1f} C\n"
         f.write(line)
@@ -171,6 +176,7 @@ def log_temperature():
     if log_size > MAX_LOG_SIZE:
         remove_from_log(log_acquired=True)
 
+    print("Temperature logged")
     log_lock.release()
 
 
@@ -205,51 +211,77 @@ def remove_from_log(no_of_lines=1, log_acquired=False):
         log_lock.release()
 
 
-def sensor_loop():
+def sensor_loop(sensor):
     while True:
-        log_temperature()  # lock in the function
+        log_temperature(sensor)  # lock in the function
         time.sleep(SAMPLING_PERIOD)
 
 
-# Connection loop
-request_wifi_params = False
-while True:
-    ssid, password = load_wifi_params()
-    if (not ssid) or (not password) or request_wifi_params:
-        wifi_config.start_ap()
-        ssid, password = wifi_config.get_config_data()
-        wifi_config.stop_ap()
-        store_wifi_params(ssid, password)
-    if connect_to_wifi(ssid, password):
-        set_time()
-        request_wifi_params = False
-        break
-    else:
-        request_wifi_params = True
+async def sensor_loop_as(sensor):
+    print("in sensor_loop_as",sensor)
+    while True:
+        await log_temperature(sensor)  # lock in the function
+        # await simple_print()
+        await asyncio.sleep(SAMPLING_PERIOD)
 
-i2c = I2C(0, scl=Pin(17), sda=Pin(16), freq=10000)
-mcp = mcp9808.MCP9808(i2c)
-sensor_thread = _thread.start_new_thread(sensor_loop, tuple())
 
-while True:
-    try:
-        if not connect_to_socket():
-            raise RuntimeError
-        while True:
-            # message = get_data_to_send()
-            number_of_lines, message = get_broad_data_to_send()
-            if message:
-                if send_message(message):
-                    remove_from_log(number_of_lines)
-                    time.sleep(1)
+def init():
+    global mcp_sensor
 
-            else:
-                s.close()
-                break
-        time.sleep(BROADCAST_PERIOD)
-    except RuntimeError as e:
-        print(type(e), e)
-        time.sleep(BROADCAST_PERIOD)
-    except Exception as e:
-        print(type(e), e)
-        connect_to_wifi(ssid, password)
+    with open("temperature_log.txt", "a") as f:
+        pass
+
+    # Connection loop
+    request_wifi_params = False
+    while True:
+        ssid, password = load_wifi_params()
+        if (not ssid) or (not password) or request_wifi_params:
+            wifi_config.start_ap()
+            ssid, password = wifi_config.get_config_data()
+            wifi_config.stop_ap()
+            store_wifi_params(ssid, password)
+        if connect_to_wifi(ssid, password):
+            set_time()
+            request_wifi_params = False
+            break
+        else:
+            request_wifi_params = True
+
+    i2c = I2C(0, scl=Pin(17), sda=Pin(16), freq=10000)
+    mcp_sensor = mcp9808.MCP9808(i2c)
+
+
+# noinspection PyAsyncCall
+async def main():
+
+    asyncio.create_task(sensor_loop_as(mcp_sensor))
+    await asyncio.sleep(1)
+
+    while True:
+        await asyncio.sleep(5)
+        try:
+            if not connect_to_socket():
+                raise RuntimeError
+            while True:
+                # message = get_data_to_send()
+                number_of_lines, message = get_broad_data_to_send()
+                if message:
+                    if send_message(message):
+                        remove_from_log(number_of_lines)
+                        time.sleep(1)
+
+                else:
+                    s.close()
+                    break
+            time.sleep(BROADCAST_PERIOD)
+        except RuntimeError as e:
+            print(type(e), e)
+            time.sleep(BROADCAST_PERIOD)
+        except Exception as e:
+            print(type(e), e)
+            connect_to_wifi(ssid, password)
+
+
+init()
+asyncio.run(main())
+# main()
