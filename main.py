@@ -15,12 +15,13 @@ import _thread
 import os
 import uasyncio as asyncio
 from math import inf
+import uselect as select
 from ucollections import namedtuple
 
 
 # region Constants
-SAMPLING_PERIOD = 10
-BROADCAST_PERIOD = 30  # 60 * 5
+SAMPLING_PERIOD = 60 * 3
+BROADCAST_PERIOD = 600  # 60 * 5
 MAX_LOG_SIZE = 1024 * 80  # [Bytes]
 last_sensor_sample = 0
 # endregion
@@ -43,6 +44,8 @@ log_lock = asyncio.Lock()
 stop_sensor_thread = False
 s: socket.Socket
 cnt = 0
+current_temperature: float = 0.0
+last_sample_timestamp: str = ""
 
 event_sensor_done_ = asyncio.Event()
 broadcast_done = asyncio.Event()
@@ -54,6 +57,25 @@ broadcast_done = asyncio.Event()
 # ssid, password = "Monitoring109a", "vegaspalmas"
 
 # endregion
+
+# defining a decorator
+def wrap_log(func):
+    async def wrap(*args,**kwargs):
+        print(f"in {func.__name__}")
+        start = utime.ticks_ms()
+
+        # calling the actual function now
+        # inside the wrapper function.
+        result = await func(*args,**kwargs)
+
+        end = utime.ticks_ms()
+        diff = utime.ticks_diff(end,start)
+
+        print(f"out {func.__name__}, time: {diff/1000:.3f} s")
+
+        return result
+
+    return wrap
 
 def store_wifi_params(ssid, password):
     with open("settings.txt", "w") as f:
@@ -120,7 +142,7 @@ async def send_message(msg="",timeout=inf):
 
     try:
         start = utime.ticks_ms()
-        print("Trying to send message...")
+        # print("Trying to send message...")
         s.send(msg)
         await asyncio.sleep_ms(100)
         if utime.ticks_diff(utime.ticks_ms(), start) > timeout:
@@ -178,7 +200,7 @@ def set_time():
     addr = socket.getaddrinfo(host, 123)[0][-1]
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        s.settimeout(5)
+        s.settimeout(1)
         res = s.sendto(NTP_QUERY, addr)
         msg = s.recv(48)
     except OSError as e:
@@ -187,6 +209,7 @@ def set_time():
 
     finally:
         s.close()
+
     val = struct.unpack("!I", msg[40:44])[0]
     t = val - NTP_DELTA
     tm = time.gmtime(t)
@@ -194,35 +217,36 @@ def set_time():
     print("Machine time set using NTP server")
 
 
+@wrap_log
 async def log_temperature(sensor: mcp9808.MCP9808):
+    global current_temperature, last_sample_timestamp
     time_ticks.last_sensor_sample = utime.ticks_ms()
-    print("lock in log temp:", log_lock.locked())
-    # await sensor.get_temp()
-    temp_celsius = 0
-    temp_celsius = sensor.get_temp()
+    # print("lock in log temp:", log_lock.locked())
+
+    current_temperature = sensor.get_temp()
     # print(temp_celsius)
     await asyncio.sleep(0.1)
-    print(temp_celsius)
+    print(f"{current_temperature:.1f} C")
     t = time.localtime()
     friendly_time = f"{t[0]}-{t[1]:02d}-{t[2]:02d} {t[3]:02d}:{t[4]:02d}:{t[5]:02d}"
+    last_sample_timestamp = friendly_time
 
-    print("lock waiting to acquire in log_temp")
-    await log_lock.acquire()
-    print("log acquired by log_temp")
-    # print("lock:", log_lock.locked())
+    # print("lock waiting to acquire in log_temp")
+    async with log_lock:
+        # print("log acquired by log_temp")
+        # print("lock:", log_lock.locked())
 
-    with open("temperature_log.txt", "a") as f:
-        line = f"{friendly_time} temperature = {temp_celsius:.1f} C\n"
-        f.write(line)
+        with open("temperature_log.txt", "a") as f:
+            line = f"{friendly_time} temperature = {current_temperature:.1f} C\n"
+            f.write(line)
 
-    log_size = os.stat("temperature_log.txt")[6]
-    if log_size > MAX_LOG_SIZE:
-        await remove_from_log()
+        log_size = os.stat("temperature_log.txt")[6]
+        if log_size > MAX_LOG_SIZE:
+            await remove_from_log()
 
-    print("Temperature logged")
-    log_lock.release()
+        # print("Temperature logged")
 
-    print("lock released in log_temp")
+    # print("lock released in log_temp")
 
 
 # def get_data_to_send():
@@ -232,24 +256,25 @@ async def log_temperature(sensor: mcp9808.MCP9808):
 #     log_lock.release()
 #     return line
 
-
+@wrap_log
 async def get_broad_data_to_send() -> (int, str):
-    print("lock waiting to acquire in get_data_to_send")
-    await log_lock.acquire()
-    print("lock acquired in get_data_to_send")
-    with open("temperature_log.txt", "r") as f:
-        data = f.read().splitlines(True)[:20]
-        data_to_send = "".join(data)
-    await uasyncio.sleep(0.1)
-    log_lock.release()
-    print("lock released in get_data_to_send")
+    # print("lock waiting to acquire in get_data_to_send")
+    async with log_lock:
+        # await log_lock.acquire()
+        # print("lock acquired in get_data_to_send")
+        with open("temperature_log.txt", "r") as f:
+            data = f.read().splitlines(True)[:20]
+            data_to_send = "".join(data)
+        await uasyncio.sleep(0.1)
+        # log_lock.release()
+    # print("lock released in get_data_to_send")
 
     return data_to_send.count('\n'), data_to_send
 
 
-
+@wrap_log
 async def remove_from_log(no_of_lines=1):
-    print("in remove_from_log")
+    # print("in remove_from_log")
 
     with open("temperature_log.txt", "r") as f:
         data = f.read().splitlines(True)
@@ -257,7 +282,7 @@ async def remove_from_log(no_of_lines=1):
         for line in data[no_of_lines:]:
               f.write(line)
 
-    print("before sleep in remove_from_log")
+    # print("before sleep in remove_from_log")
     await uasyncio.sleep(0.05)
 
 # def sensor_loop(sensor):
@@ -269,7 +294,7 @@ async def remove_from_log(no_of_lines=1):
 async def sensor_loop_as(sensor):
     await log_temperature(sensor)  # lock in the function
 
-
+@wrap_log
 async def connect_and_send():
     time_ticks.last_broadcast = utime.ticks_ms()
     try:
@@ -280,12 +305,13 @@ async def connect_and_send():
             number_of_lines, message = await get_broad_data_to_send()
             if message:
                 if await send_message(message):
-                    print("lock waiting to acquire in connect and send")
-                    await log_lock.acquire()
-                    print("Locked by connect and send")
-                    await remove_from_log(number_of_lines)
-                    log_lock.release()
-                    print("released by connect and send")
+                    # print("lock waiting to acquire in connect and send")
+                    # await log_lock.acquire()
+                    async with log_lock:
+                        # print("Locked by connect and send")
+                        await remove_from_log(number_of_lines)
+                    # log_lock.release()
+                    # print("released by connect and send")
                     # await asyncio.sleep(0.1)
 
             else:
@@ -299,6 +325,55 @@ async def connect_and_send():
         pass
         # TODO: reconnection with wifi
         # connect_to_wifi(ssid, password)
+
+
+def get_webserver_html(temperature, timestamp):
+    html = f"""<!DOCTYPE html>
+        <html>
+        <body>
+
+        <p>Temperature: {temperature:.1f} C</p>
+        <p>Measured at {timestamp}</p>
+
+        </body>
+        </html>"""
+
+    return html
+
+
+async def webserver():
+    addr = socket.getaddrinfo('0.0.0.0', 80)[0][-1]
+    socket_webserver = socket.socket()
+    socket_webserver.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    socket_webserver.bind(addr)
+    socket_webserver.listen(10)
+    client = None
+
+    poller = select.poll()
+    poller.register(socket_webserver, select.POLLIN)
+
+    while True:
+        try:
+            res = poller.poll(1)  # 1ms block
+            if res:  # Only s_sock is polled
+                client, addr = socket_webserver.accept()  # get client socket
+            else:
+                await asyncio.sleep_ms(200)
+                continue
+
+            # client, addr = socket_webserver.accept()
+            print('client connected to webserver from', addr)
+            # request = cl.recv(1024)
+
+            client.send('HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n')
+            client.send(get_webserver_html(current_temperature, last_sample_timestamp))
+            await asyncio.sleep_ms(5000)
+            client.close()
+
+        except OSError as e:
+            if client:
+                client.close()
+            print('Connection closed unexpectedly')
 
 
 def init():
@@ -330,7 +405,10 @@ def init():
 # noinspection PyAsyncCall
 async def main():
     # global last_sensor_sample
-    sensor_task, broadcast_task = None, None
+    sensor_task, broadcast_task, webserver_task = None, None, None
+    webserver_task = asyncio.create_task(webserver())
+
+
 
     while True:
         try:
@@ -349,8 +427,7 @@ async def main():
         except TimeoutError as e:
             print('Broadcast task timeout. Awaiting...')
 
-        await asyncio.sleep_ms(5000)
-
+        await asyncio.sleep_ms(200)
 
 init()
 asyncio.run(main())
