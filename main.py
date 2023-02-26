@@ -17,13 +17,15 @@ import uasyncio as asyncio
 from math import inf
 import uselect as select
 from ucollections import namedtuple
-
+import neopixel
 
 # region Constants
 SAMPLING_PERIOD = 60 * 3
 BROADCAST_PERIOD = 600  # 60 * 5
 MAX_LOG_SIZE = 1024 * 80  # [Bytes]
 last_sensor_sample = 0
+
+
 # endregion
 class TimeTicks:
     def __init__(self):
@@ -31,14 +33,16 @@ class TimeTicks:
         self.last_broadcast: int = 0
 
     def __call__(self, *args, **kwargs):
-        print(self.last_sensor_sample,self.last_broadcast)
+        print(self.last_sensor_sample, self.last_broadcast)
+
 
 # region Global variables
 mcp_sensor: mcp9808.MCP9808
 ssid: str
 password: str
 time_ticks = TimeTicks()
-led = Pin("LED", Pin.OUT)
+# led = Pin("LED", Pin.OUT)
+np = neopixel.NeoPixel(machine.Pin(2), 1)
 # log_lock = _thread.allocate_lock()
 log_lock = asyncio.Lock()
 stop_sensor_thread = False
@@ -60,22 +64,23 @@ broadcast_done = asyncio.Event()
 
 # defining a decorator
 def wrap_log(func):
-    async def wrap(*args,**kwargs):
+    async def wrap(*args, **kwargs):
         print(f"in {func.__name__}")
         start = utime.ticks_ms()
 
         # calling the actual function now
         # inside the wrapper function.
-        result = await func(*args,**kwargs)
+        result = await func(*args, **kwargs)
 
         end = utime.ticks_ms()
-        diff = utime.ticks_diff(end,start)
+        diff = utime.ticks_diff(end, start)
 
-        print(f"out {func.__name__}, time: {diff/1000:.3f} s")
+        print(f"out {func.__name__}, time: {diff / 1000:.3f} s")
 
         return result
 
     return wrap
+
 
 def store_wifi_params(ssid, password):
     with open("settings.txt", "w") as f:
@@ -101,11 +106,19 @@ def load_wifi_params():
     return ssid, password
 
 
-async def blink(period_on=0.1, period_off=0.3, repetitions=1):
+async def blink(period_on=0.1, period_off=0.3, repetitions=1, color='green', brightness=0.5):
+    colors = {'red': (1.0, 0.0, 0.0),
+              'green': (0.0, 1.0, 0.0),
+              'blue': (0.0, 0.0, 1.0)}
+
+    requested_param = tuple([int(x*brightness*255) for x in colors[color]])
+
     for i in range(repetitions):
-        led.high()
+        np[0] = requested_param
+        np.write()
         await asyncio.sleep(period_on)
-        led.low()
+        np[0] = (0, 0, 0)
+        np.write()
         await asyncio.sleep(period_off)
 
 
@@ -127,7 +140,7 @@ async def connect_to_socket():
             await blink(0.1, 0.1, 2)
 
         except Exception as e:
-            print("Error occured while connecting to socket:", type(e),e)
+            print("Error occured while connecting to socket:", type(e), e)
             await blink(0.1, 0.1, 2)
         else:
             print("Connected to socket ")
@@ -136,7 +149,7 @@ async def connect_to_socket():
     return False
 
 
-async def send_message(msg="",timeout=inf):
+async def send_message(msg="", timeout=inf):
     global cnt
     success = False
 
@@ -148,10 +161,7 @@ async def send_message(msg="",timeout=inf):
         if utime.ticks_diff(utime.ticks_ms(), start) > timeout:
             raise OSError("send_message: timeout occurred")
 
-        led.high()
-        await asyncio.sleep(0.1)
-        led.low()
-        await asyncio.sleep(0.1)
+        await blink(0.2, 0, 2)
         cnt += 1
 
     except OSError as e:
@@ -160,7 +170,7 @@ async def send_message(msg="",timeout=inf):
 
     except Exception as e:
         print("Error while sending msg:")
-        print(type(e),e)
+        print(type(e), e)
         raise
 
     else:
@@ -177,18 +187,23 @@ def connect_to_wifi(ssid, password):
     global wlan
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
-    wlan.connect(ssid, password)
+    # wlan.connect(ssid, password)
 
-    connecting_start = time.time()
-    while True:
-        diff = time.time() - connecting_start
-        if wlan.isconnected():
-            return True
-        if diff > 20:
-            wlan.active(False)
-            return False
+    # wlan = network.WLAN(network.STA_IF)
+    # wlan.active(True)
+    time.sleep(1)
+    # might already be connected somehow.
+    if not wlan.isconnected():
+        wlan.connect(ssid, password)
 
-        time.sleep(2)
+    # Wait for connection.
+    while not wlan.isconnected():
+        pass
+
+    if wlan.isconnected():
+        return True
+    else:
+        return False
 
 
 def set_time():
@@ -280,10 +295,11 @@ async def remove_from_log(no_of_lines=1):
         data = f.read().splitlines(True)
     with open("temperature_log.txt", "w") as f:
         for line in data[no_of_lines:]:
-              f.write(line)
+            f.write(line)
 
     # print("before sleep in remove_from_log")
     await uasyncio.sleep(0.05)
+
 
 # def sensor_loop(sensor):
 #     while True:
@@ -293,6 +309,7 @@ async def remove_from_log(no_of_lines=1):
 
 async def sensor_loop_as(sensor):
     await log_temperature(sensor)  # lock in the function
+
 
 @wrap_log
 async def connect_and_send():
@@ -377,7 +394,7 @@ async def webserver():
 
 
 def init():
-    global mcp_sensor
+    global mcp_sensor, npixel
 
     with open("temperature_log.txt", "a") as f:
         pass
@@ -385,7 +402,8 @@ def init():
     # Connection loop
     request_wifi_params = False
     while True:
-        ssid, password = load_wifi_params()
+        # ssid, password = load_wifi_params()
+        ssid, password = "Monitoring109a", "vegaspalmas"
         if (not ssid) or (not password) or request_wifi_params:
             wifi_config.start_ap()
             ssid, password = wifi_config.get_config_data()
@@ -398,8 +416,8 @@ def init():
         else:
             request_wifi_params = True
 
-    i2c = I2C(0, scl=Pin(17), sda=Pin(16), freq=10000)
-    mcp_sensor = mcp9808.MCP9808(i2c)
+    # i2c = I2C(0, scl=Pin(17), sda=Pin(16), freq=10000)
+    # mcp_sensor = mcp9808.MCP9808(i2c)
 
 
 # noinspection PyAsyncCall
@@ -408,28 +426,31 @@ async def main():
     sensor_task, broadcast_task, webserver_task = None, None, None
     webserver_task = asyncio.create_task(webserver())
 
-
-
     while True:
-        try:
-            if utime.ticks_diff(utime.ticks_ms(), time_ticks.last_sensor_sample) > (SAMPLING_PERIOD * 1000):
-                if sensor_task is not None:
-                    await asyncio.wait_for(sensor_task,2)
-                sensor_task = asyncio.create_task(sensor_loop_as(mcp_sensor))
-        except Exception as e:
-            print(type(e),e)
+        await blink(0.1, 0.1, color='green')
+        await blink(0.1, 0.1, color='blue')
+        await blink(0.1, 0.1, color='red')
+        await asyncio.sleep_ms(10)
+        # try:
+        #     if utime.ticks_diff(utime.ticks_ms(), time_ticks.last_sensor_sample) > (SAMPLING_PERIOD * 1000):
+        #         if sensor_task is not None:
+        #             await asyncio.wait_for(sensor_task,2)
+        #         sensor_task = asyncio.create_task(sensor_loop_as(mcp_sensor))
+        # except Exception as e:
+        #     print(type(e),e)
 
-        try:
-            if utime.ticks_diff(utime.ticks_ms(), time_ticks.last_broadcast) > (BROADCAST_PERIOD * 1000):
-                if broadcast_task is not None:
-                    await asyncio.wait_for(broadcast_task,5)
-                broadcast_task = asyncio.create_task(connect_and_send())
-        except TimeoutError as e:
-            print('Broadcast task timeout. Awaiting...')
+        # try:
+        #     if utime.ticks_diff(utime.ticks_ms(), time_ticks.last_broadcast) > (BROADCAST_PERIOD * 1000):
+        #         if broadcast_task is not None:
+        #             await asyncio.wait_for(broadcast_task,5)
+        #         broadcast_task = asyncio.create_task(connect_and_send())
+        # except TimeoutError as e:
+        #     print('Broadcast task timeout. Awaiting...')
+        #
+        # await asyncio.sleep_ms(200)
 
-        await asyncio.sleep_ms(200)
 
-init()
+# init()
 asyncio.run(main())
 # main()
 
