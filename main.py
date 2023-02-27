@@ -64,5 +64,5 @@ else:
 while True:
 
 
-    blink(0.1,0.9, color='green')
+    blink(0.1,0.9,3, color='green')
     blink(0.1, 0.9, color='red')
