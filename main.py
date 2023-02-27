@@ -11,7 +11,7 @@ np = NeoPixel(Pin(2),1)
 with open("settings.txt","r") as f:
     ssid,password = f.read().splitlines(False)
 
-time.sleep(3)
+# time.sleep(3)
 
 wlan = network.WLAN(network.STA_IF)
 wlan.active(True)
@@ -45,8 +45,12 @@ def blink(period_on=0.1, period_off=0.3, repetitions=1, color='green', brightnes
 #   files=["main.py"]
 # )
 
-GITHUB_URL = "https://github.com/KatangaDev/temperature_sensor/tree/ota_test_esp"
-OTA = senko.Senko(url=GITHUB_URL, files=["main.py"])
+# GITHUB_URL = "https://github.com/KatangaDev/temperature_sensor/tree/ota_test_esp"
+# OTA = senko.Senko(url=GITHUB_URL, files=["main.py"])
+
+OTA = senko.Senko(
+  user="KatangaDev", repo="temperature_sensor",branch="ota_test_esp", files=["main.py"]
+)
 
 if OTA.update():
     print("Updated to the latest version! Rebooting...")
@@ -55,5 +59,5 @@ if OTA.update():
 while True:
 
 
-    blink(0.1,0.9, color='green')
+    blink(0.1,0.9, color='blue')
     blink(0.1, 0.9, color='red')
