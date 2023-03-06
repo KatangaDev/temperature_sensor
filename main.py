@@ -22,5 +22,5 @@ def blink(period_on=0.1, period_off=0.3, repetitions=1, color='green', brightnes
 
 
 while True:
-    blink(0.1, 0.1, 5, color='green')
-    blink(0.1, 0.1, 2, color='red')
+    blink(1, 2, color='green')
+
