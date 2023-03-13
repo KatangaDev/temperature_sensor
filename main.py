@@ -14,5 +14,5 @@ def blink(period_on=0.1, period_off=0.3, repetitions=1):
 
 
 while True:
-    blink(0.2, 0.1)
+    blink(0.05, 0.05)
 
