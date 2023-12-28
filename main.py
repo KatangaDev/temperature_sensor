@@ -24,8 +24,8 @@ WATCHDOG_MS = 1000 * 24 * 60 * 60  # 24 hours
 # MAX_LOG_SIZE = 1024 * 10  # [Bytes]
 MAX_LOG_SIZE = 1  # [Bytes]
 
-# SERVER_ADDRESS = "https://haccpapi.azure-api.net/Measurements/PostMeasurements"
-SERVER_ADDRESS = "https://192.168.0.144"
+SERVER_ADDRESS = "https://haccpapi.azure-api.net/Measurements/PostMeasurements"
+# SERVER_ADDRESS = "https://192.168.0.144"
 
 # endregion
 class TimeTicks:
@@ -57,25 +57,6 @@ broadcast_done = asyncio.Event()
 
 
 # defining a decorator
-def wrap_log(func):
-    async def wrap(*args, **kwargs):
-        print(f"in {func.__name__}")
-        start = utime.ticks_ms()
-
-        # calling the actual function now
-        # inside the wrapper function.
-        result = await func(*args, **kwargs)
-
-        end = utime.ticks_ms()
-        diff = utime.ticks_diff(end, start)
-
-        print(f"out {func.__name__}, time: {diff / 1000:.3f} s")
-
-        return result
-
-    return wrap
-
-
 def store_wifi_params(ssid, password):
     with open("settings.txt", "w") as f:
         f.write(f"{ssid.replace('+', ' ')}\n")
@@ -372,46 +353,6 @@ async def webserver():
             if client:
                 client.close()
             print('Connection closed unexpectedly')
-
-
-async def tcpserver():
-    global current_temperature
-    addr = socket.getaddrinfo('0.0.0.0', 2000)[0][-1]
-    socket_tcpserver = socket.socket()
-    socket_tcpserver.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    socket_tcpserver.bind(addr)
-    socket_tcpserver.listen(10)
-    client = None
-
-    poller = select.poll()
-    poller.register(socket_tcpserver, select.POLLIN)
-
-    print("TCPserver task started...")
-
-    while True:
-        try:
-            res = poller.poll(1)  # 1ms block
-            if res:  # Only s_sock is polled
-                client, addr = socket_tcpserver.accept()  # get client socket
-            else:
-                await asyncio.sleep_ms(100)
-                continue
-
-            # client, addr = socket_webserver.accept()
-            print('client connected to tcpserver from', addr)
-            # request = cl.recv(1024)
-
-            # sensor_task = asyncio.create_task(sensor_loop_as(sensor))
-            # await asyncio.wait_for(sensor_task, 5)
-            await get_temperature(sensor)
-            client.send(f"RES;{current_temperature:.1f}\r\n")
-
-            client.close()
-
-        except OSError as e:
-            if client:
-                client.close()
-            print('TCP Connection closed unexpectedly')
 
 
 def get_machine_id():
