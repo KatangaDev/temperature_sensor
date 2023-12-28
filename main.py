@@ -435,7 +435,7 @@ async def main():
     await asyncio.wait_for(sensor_task, 5)
 
     webserver_task = asyncio.create_task(webserver())
-    tcpserver_task = asyncio.create_task(tcpserver())
+    #tcpserver_task = asyncio.create_task(tcpserver())
 
     while True:
         try:

@@ -1,5 +1,5 @@
-#import urequests
-import areqs as requests
+import urequests as requests
+#import areqs as requests
 import utime as time
 import network
 # import micropython
