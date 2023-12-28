@@ -18,10 +18,13 @@ import areqs as requests
 SAMPLING_PERIOD = 60 * 1
 LOGGING_PERIOD = 3
 BROADCAST_PERIOD = 60 * 10  # 60 * 5
+HOTSPOT_TIME = 60 * 10  # seconds
+WATCHDOG_MS = 1000 * 24 * 60 * 60  # 24 hours
+# WATCHDOG_MS = 1000 * 60
 # MAX_LOG_SIZE = 1024 * 10  # [Bytes]
 MAX_LOG_SIZE = 1  # [Bytes]
 
-#SERVER_ADDRESS = "https://haccpapi.azure-api.net/Measurements/PostMeasurements"
+# SERVER_ADDRESS = "https://haccpapi.azure-api.net/Measurements/PostMeasurements"
 SERVER_ADDRESS = "https://192.168.0.144"
 
 # endregion
@@ -29,6 +32,7 @@ class TimeTicks:
     def __init__(self):
         self.last_sensor_sample: int = 0
         self.last_broadcast: int = -BROADCAST_PERIOD * 1000
+        self.power_up = utime.ticks_ms()
 
     def __call__(self, *args, **kwargs):
         print(self.last_sensor_sample, self.last_broadcast)
@@ -37,6 +41,7 @@ class TimeTicks:
 # region Global variables
 ssid: str
 password: str
+machine_id = ""
 time_ticks = TimeTicks()
 led = Pin("LED", Pin.OUT)
 # log_lock = _thread.allocate_lock()
@@ -116,6 +121,16 @@ async def blink_loop(stop_event: asyncio.Event, period_on=0.3, period_off=0.3):
         await asyncio.sleep(period_off)
 
 
+async def watchdog(stop_event: asyncio.Event, time_s=60):
+    periods = 0
+    while not stop_event.is_set():
+        await asyncio.sleep(1)
+        periods += 1
+        if periods > time_s:
+            print('Watchdog - rebooting')
+            machine.reset()
+
+
 async def send_message(msg=None, timeout=inf):
     global cnt
     success = False
@@ -185,7 +200,8 @@ def connect_to_wifi(ssid, password):
 
 def set_time():
     print("Setting time using NTP server...")
-    NTP_DELTA = 2208988800 - 7200  # - 3600 instead of 7200 for winter time
+    NTP_DELTA = 2208988800
+    # NTP_DELTA = 2208988800 - 7200  # - 3600 instead of 7200 for winter time
     host = "pool.ntp.org"
     NTP_QUERY = bytearray(48)
     NTP_QUERY[0] = 0x1B
@@ -199,11 +215,11 @@ def set_time():
     except OSError as e:
         print("Could not set machine time using NTP:")
         print(type(e), e)
-        return
+        return False
     except Exception as e:
         print("Unknown exception")
         print(type(e), e)
-        return
+        return False
 
     finally:
         s.close()
@@ -212,7 +228,11 @@ def set_time():
     t = val - NTP_DELTA
     tm = time.gmtime(t)
     machine.RTC().datetime((tm[0], tm[1], tm[2], tm[6] + 1, tm[3], tm[4], tm[5], 0))
+
     print("Machine time set using NTP server")
+    print(f"{tm[0]:04d}-{tm[1]:02d}-{tm[2]:02d} {tm[3]:02d}:{tm[4]:02d}:{tm[5]:02d}")
+
+    return True
 
 
 # @wrap_log
@@ -246,17 +266,22 @@ async def get_temperature(temp_sensor: ds_sensor.Sensor):
 
 # @wrap_log
 async def get_broad_data_to_send() -> (int, dict):
+    data_to_send = {}
     async with log_lock:
         with open("temperature_log.txt", "r") as f:
             data = f.read().splitlines(True)[:200]
+            data_to_send['id'] = machine_id
+            data_to_send['location'] = 'L3'
             try:
                 times, temps = list(zip(*[line.strip().split(";") for line in data]))
                 temps = list(map(float,temps))
-                data_to_send = {'time': times[0], "temperature": temps[0]}
+                data_to_send['measurements'] = [{"time": times[0], "temperature": temps[0]}]
 
             except ValueError:
                 times, temps = [], []
-                data_to_send = {'time': times, "temperature": temps}
+                data_to_send['measurements'] = [{'time': times, "temperature": temps}]
+
+
 
     return len(temps), data_to_send
 
@@ -397,8 +422,9 @@ def get_machine_id():
 
 
 async def init():
-    global sensor
+    global sensor, machine_id
     led.high()
+    machine_id = get_machine_id()
 
     with open("temperature_log.txt", "a") as f:
         pass
@@ -411,6 +437,7 @@ async def init():
             e_stop = asyncio.Event()
             wifi_config.start_ap()
             blink_loop_task = asyncio.create_task(blink_loop(e_stop))
+            watchdog_task = asyncio.create_task(watchdog(e_stop,time_s=HOTSPOT_TIME))
             ssid, password = await wifi_config.get_config_data()
             wifi_config.stop_ap()
             e_stop.set()
@@ -418,7 +445,9 @@ async def init():
             await asyncio.sleep(2)
             machine.reset()
         if connect_to_wifi(ssid, password):
-            set_time()
+            for i in range(1):
+                if set_time():
+                    break
             request_wifi_params = False
             break
         else:
@@ -426,6 +455,8 @@ async def init():
 
     sensor = ds_sensor.Sensor(Pin(21))
     led.low()
+    time_ticks.power_up = utime.ticks_ms()
+
 
 
 async def main():
@@ -457,12 +488,14 @@ async def main():
         await asyncio.sleep_ms(200)
 
 
+        #Global watchdog
+        if utime.ticks_diff(utime.ticks_ms(),time_ticks.power_up) > WATCHDOG_MS:
+            print("Global watchdog reboot...")
+            machine.reset()
+
+
 asyncio.run(init())
 asyncio.run(main())
 # main()
 
 # TODO: remove debug prints
-
-
-
-
