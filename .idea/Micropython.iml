@@ -3,7 +3,7 @@
   <component name="FacetManager">
     <facet type="MicroPython" name="MicroPython">
       <configuration>
-        <device name="Raspberry Pi Pico" />
+        <device name="ESP8266" />
       </configuration>
     </facet>
   </component>
