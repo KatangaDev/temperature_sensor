@@ -25,6 +25,8 @@ WATCHDOG_MS = 1000 * 24 * 60 * 60  # 24 hours
 MAX_LOG_SIZE = 1  # [Bytes]
 
 SERVER_ADDRESS = "https://haccpapi.azurewebsites.net/Measurement/PostMeasurements"
+
+
 # SERVER_ADDRESS = "https://192.168.0.144"
 
 # endregion
@@ -119,12 +121,12 @@ async def send_message(msg=None, timeout=inf):
     if msg is None:
         msg = {}
 
-
     try:
         start = utime.ticks_ms()
-        print("Trying to send message...")
+        print("Trying to send:")
+        print(json.dumps(msg))
 
-        res = await requests.post(SERVER_ADDRESS,json=json.dumps(msg), timeout=30)
+        res = await requests.post(SERVER_ADDRESS, json=msg, timeout=30)
         print(res.text)
 
         res.close()
@@ -132,7 +134,6 @@ async def send_message(msg=None, timeout=inf):
 
         if utime.ticks_diff(utime.ticks_ms(), start) > timeout:
             raise OSError("send_message: timeout occurred")
-
 
         led.high()
         await asyncio.sleep(0.1)
@@ -221,14 +222,12 @@ async def log_temperature(temp_sensor: ds_sensor.Sensor):
     await get_temperature(temp_sensor)
 
     async with log_lock:
-
         with open("temperature_log.txt", "a") as f:
             line = f"{last_sample_timestamp};{current_temperature:.1f}\n"
             f.write(line)
 
         with open("temperature_log.txt", "r") as f:
             log_size = f.read().count("\n")
-
 
         if log_size > MAX_LOG_SIZE:
             await remove_from_log()
@@ -241,7 +240,7 @@ async def get_temperature(temp_sensor: ds_sensor.Sensor):
     current_temperature = await temp_sensor.get_temp()
     print(f"{current_temperature:.1f} C")
     t = time.localtime()
-    friendly_time = f"{t[0]}-{t[1]:02d}-{t[2]:02d} {t[3]:02d}:{t[4]:02d}:{t[5]:02d}"
+    friendly_time = f"{t[0]}-{t[1]:02d}-{t[2]:02d}T{t[3]:02d}:{t[4]:02d}:{t[5]:02d}Z"
     last_sample_timestamp = friendly_time
 
 
@@ -255,14 +254,12 @@ async def get_broad_data_to_send() -> (int, dict):
             data_to_send['location'] = 'L3'
             try:
                 times, temps = list(zip(*[line.strip().split(";") for line in data]))
-                temps = list(map(float,temps))
+                temps = list(map(float, temps))
                 data_to_send['measurements'] = [{"time": times[0], "temperature": temps[0]}]
 
             except ValueError:
                 times, temps = [], []
                 data_to_send['measurements'] = [{'time': times, "temperature": temps}]
-
-
 
     return len(temps), data_to_send
 
@@ -277,6 +274,7 @@ async def remove_from_log(no_of_lines=1):
     print(f"{no_of_lines} removed from log")
 
     await uasyncio.sleep(0.05)
+
 
 async def sensor_loop_as(sensor):
     await log_temperature(sensor)  # lock in the function
@@ -370,8 +368,6 @@ async def init():
     with open("temperature_log.txt", "a") as f:
         pass
 
-
-
     # Connection loop
     request_wifi_params = False
     while True:
@@ -380,7 +376,7 @@ async def init():
             e_stop = asyncio.Event()
             wifi_config.start_ap()
             blink_loop_task = asyncio.create_task(blink_loop(e_stop))
-            watchdog_task = asyncio.create_task(watchdog(e_stop,time_s=HOTSPOT_TIME))
+            watchdog_task = asyncio.create_task(watchdog(e_stop, time_s=HOTSPOT_TIME))
             ssid, password = await wifi_config.get_config_data()
             wifi_config.stop_ap()
             e_stop.set()
@@ -402,7 +398,6 @@ async def init():
     time_ticks.power_up = utime.ticks_ms()
 
 
-
 async def main():
     # global last_sensor_sample
     sensor_task, broadcast_task, webserver_task, tcpserver_task = None, None, None, None
@@ -410,7 +405,7 @@ async def main():
     await asyncio.wait_for(sensor_task, 5)
 
     webserver_task = asyncio.create_task(webserver())
-    #tcpserver_task = asyncio.create_task(tcpserver())
+    # tcpserver_task = asyncio.create_task(tcpserver())
 
     while True:
         try:
@@ -431,9 +426,8 @@ async def main():
 
         await asyncio.sleep_ms(200)
 
-
-        #Global watchdog
-        if utime.ticks_diff(utime.ticks_ms(),time_ticks.power_up) > WATCHDOG_MS:
+        # Global watchdog
+        if utime.ticks_diff(utime.ticks_ms(), time_ticks.power_up) > WATCHDOG_MS:
             print("Global watchdog reboot...")
             machine.reset()
 
