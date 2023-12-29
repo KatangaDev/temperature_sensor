@@ -81,6 +81,10 @@ def main():
     if not UPDATE:
         return
 
+    led.low()
+    time.sleep(1.2)
+    led.high()
+
     print("Checking for updates...")
     r = requests.get("https://raw.githubusercontent.com/KatangaDev/temperature_sensor/ota_pico/main.py",
                      headers={'User-Agent': 'KatangaDev'})
@@ -101,4 +105,3 @@ def main():
 
 
 main()
-

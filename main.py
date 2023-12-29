@@ -370,6 +370,8 @@ async def init():
     with open("temperature_log.txt", "a") as f:
         pass
 
+
+
     # Connection loop
     request_wifi_params = False
     while True:
@@ -395,6 +397,7 @@ async def init():
             request_wifi_params = True
 
     sensor = ds_sensor.Sensor(Pin(21))
+    init_temp = await get_temperature(sensor)
     led.low()
     time_ticks.power_up = utime.ticks_ms()
 
