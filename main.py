@@ -24,7 +24,7 @@ WATCHDOG_MS = 1000 * 24 * 60 * 60  # 24 hours
 # MAX_LOG_SIZE = 1024 * 10  # [Bytes]
 MAX_LOG_SIZE = 1  # [Bytes]
 
-SERVER_ADDRESS = "https://haccpapi.azure-api.net/Measurements/PostMeasurements"
+SERVER_ADDRESS = "https://haccpapi.azurewebsites.net/Measurement/PostMeasurements"
 # SERVER_ADDRESS = "https://192.168.0.144"
 
 # endregion
@@ -443,3 +443,4 @@ asyncio.run(main())
 # main()
 
 # TODO: remove debug prints
+
