@@ -24,10 +24,11 @@ WATCHDOG_MS = 1000 * 24 * 60 * 60  # 24 hours
 # MAX_LOG_SIZE = 1024 * 10  # [Bytes]
 MAX_LOG_SIZE = 1  # [Bytes]
 
-SERVER_ADDRESS = "https://haccpapi.azurewebsites.net/Measurement/PostMeasurements"
+# SERVER_ADDRESS = "https://haccpapi.azurewebsites.net/Measurement/PostMeasurements"
 
 
-# SERVER_ADDRESS = "https://192.168.0.144"
+SERVER_ADDRESS = "https://192.168.0.144"
+
 
 # endregion
 class TimeTicks:
@@ -127,7 +128,10 @@ async def send_message(msg=None, timeout=inf):
         print(json.dumps(msg))
 
         res = await requests.post(SERVER_ADDRESS, json=msg, timeout=30)
-        print(res.text)
+
+        print(f"status code: {res.status_code}")
+        if res.status_code != 200:
+            print(res.text)
 
         res.close()
         await asyncio.sleep_ms(100)
@@ -437,4 +441,5 @@ asyncio.run(main())
 # main()
 
 # TODO: remove debug prints
+
 
