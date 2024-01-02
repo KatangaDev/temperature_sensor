@@ -2,7 +2,6 @@ import socket
 import network
 import select
 import uasyncio as asyncio
-from urllib.parse import unquote
 
 html_params = """<!DOCTYPE html>
 <html>

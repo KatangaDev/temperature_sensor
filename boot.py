@@ -5,7 +5,7 @@ import network
 from machine import Pin, reset
 
 RECONN_ATTEMPTS_REBOOT = 3
-UPDATE = True
+UPDATE = False
 
 
 def main():
@@ -17,9 +17,18 @@ def main():
     time.sleep(0.2)
     led.high()
     # return
-    with open("settings.txt", "r") as f:
-        ssid, password = f.read().split('\n')
-        print(ssid, password)
+    try:
+        with open("settings.txt", "r") as f:
+            ssid, password = f.read().split('\n')
+            print(ssid, password)
+
+    except (OSError, ValueError) as e:
+        print(type(e), e)
+        with open("settings.txt", "w"):
+            pass
+
+        print('initialization')
+        return
 
     time.sleep(1)
 
@@ -105,3 +114,4 @@ def main():
 
 
 main()
+
