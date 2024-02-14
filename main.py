@@ -345,7 +345,7 @@ async def webserver():
             print('client connected to webserver from', addr)
 
             client.send('HTTP/1.0 200 OK\r\nContent-type: text/html\r\n\r\n')
-            client.send(get_webserver_html(current_temperature, last_sample_timestamp))
+            client.send(get_webserver_html(current_temperature, last_sample_timestamp.replace("T"," ").replace("Z","")))
             await asyncio.sleep_ms(500)
             client.close()
 
@@ -439,5 +439,3 @@ asyncio.run(main())
 # main()
 
 # TODO: remove debug prints
-
-

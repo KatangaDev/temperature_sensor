@@ -3,9 +3,10 @@ import urequests as requests
 import utime as time
 import network
 from machine import Pin, reset
+import sys
 
 RECONN_ATTEMPTS_REBOOT = 3
-UPDATE = False
+UPDATE = True
 
 
 def main():
@@ -17,18 +18,9 @@ def main():
     time.sleep(0.2)
     led.high()
     # return
-    try:
-        with open("settings.txt", "r") as f:
-            ssid, password = f.read().split('\n')
-            print(ssid, password)
-
-    except (OSError, ValueError) as e:
-        print(type(e), e)
-        with open("settings.txt", "w"):
-            pass
-
-        print('initialization')
-        return
+    with open("settings.txt", "r") as f:
+        ssid, password = f.read().split('\n')
+        print(ssid, password)
 
     time.sleep(1)
 
@@ -66,7 +58,8 @@ def main():
                 print('Controller will be rebooted...')
                 with open("temp.db", "w") as f:
                     f.write(f"{retries + 1}")
-                reset()
+                sys.exit()
+                #reset()
 
         except FileNotFoundError:
             print('file not found')
